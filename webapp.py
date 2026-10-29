@@ -432,6 +432,15 @@ def media_page(request: Request):
                   upload_error=None, upload_url=None)
 
 
+
+@app.get("/deploy", response_class=HTMLResponse)
+def deploy(request: Request):
+    user = auth_guard(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return render(request, "deploy.html", active="deploy", user=user)
+
+
 @app.get("/config", response_class=HTMLResponse)
 def config(request: Request):
     user = auth_guard(request)

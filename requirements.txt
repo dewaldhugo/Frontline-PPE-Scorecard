@@ -1,0 +1,9 @@
+python-dotenv
+bcrypt
+fastapi
+jinja2
+python-multipart
+itsdangerous
+uvicorn
+httpx
+paramiko

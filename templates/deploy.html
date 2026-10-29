@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Deploy - Frontline Safety Fear [PPE Scorecard]{% endblock %}
+{% block page_title %}Deploy{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Deploy</h1>
+<div class="bg-white p-6 rounded shadow space-y-4">
+  <p class="text-slate-700">Host this app publicly for free. Recommended options:</p>
+  <div class="grid gap-4">
+    <div class="border rounded p-4">
+      <h3 class="font-semibold">PythonAnywhere</h3>
+      <p class="text-sm text-slate-600">Persistent SQLite, easy WSGI setup. Best for low-traffic admin tools.</p>
+      <a href="https://www.pythonanywhere.com/" target="_blank" class="text-blue-600 hover:underline text-sm">Open PythonAnywhere</a>
+    </div>
+    <div class="border rounded p-4">
+      <h3 class="font-semibold">Render</h3>
+      <p class="text-sm text-slate-600">Auto-deploy from GitHub, HTTPS included. Free tier sleeps after idle.</p>
+      <a href="https://render.com/" target="_blank" class="text-blue-600 hover:underline text-sm">Open Render</a>
+    </div>
+    <div class="border rounded p-4">
+      <h3 class="font-semibold">Oracle Cloud Free Tier</h3>
+      <p class="text-sm text-slate-600">Always-free VM with persistent disk and full control.</p>
+      <a href="https://www.oracle.com/cloud/free/" target="_blank" class="text-blue-600 hover:underline text-sm">Open Oracle Cloud</a>
+    </div>
+  </div>
+  <div class="mt-4">
+    <h3 class="font-semibold mb-2">GitHub Repository</h3>
+    <a href="https://github.com/dewaldhugo/Frontline-PPE-Scorecard" target="_blank" class="text-blue-600 hover:underline text-sm">View on GitHub</a>
+  </div>
+  <div class="mt-4">
+    <h3 class="font-semibold mb-2">Quick start (Render)</h3>
+    <pre class="bg-slate-900 text-green-300 p-3 rounded text-sm">pip install -r requirements.txt
+uvicorn webapp:app --host 0.0.0.0 --port $PORT
+</pre>
+  </div>
+</div>
+{% endblock %}
