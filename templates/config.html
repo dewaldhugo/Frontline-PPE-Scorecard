@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Config - Frontline Safety Fear [PPE Scorecard]{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">⚙️ Config</h1>
+<div class="bg-white p-4 rounded shadow">
+  <h2 class="text-lg font-semibold mb-2">Current .env</h2>
+  <pre class="bg-slate-900 text-green-300 p-4 rounded text-sm overflow-auto">{{ env_content }}</pre>
+  <p class="text-sm text-slate-500 mt-2">Edit .env directly to change SMTP credentials, sender details, etc.</p>
+</div>
+{% endblock %}

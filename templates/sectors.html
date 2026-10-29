@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sectors - Frontline Safety Fear [PPE Scorecard]{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">🗂️ Sectors</h1>
+<div class="grid gap-4">
+  {% for s in sectors_info %}
+  <div class="bg-white p-4 rounded shadow flex items-center justify-between">
+    <div>
+      <div class="font-semibold text-lg">{{ s.slug|title }}</div>
+      <div class="text-sm text-slate-500">Leads: {{ s.total_leads }} · Sent: {{ s.sent }} · Unsent: {{ s.unsent }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

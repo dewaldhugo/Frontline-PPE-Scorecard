@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Edit Email - {{ sector }}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Edit Email — {{ sector|title }}</h1>
+{% if message %}<div class="mb-3 p-3 rounded bg-green-100 text-green-800">{{ message }}</div>{% endif %}
+{% if error %}<div class="mb-3 p-3 rounded bg-red-100 text-red-800">{{ error }}</div>{% endif %}
+<form method="post" action="/emails/edit/{{ sector }}" class="space-y-4">
+  <div>
+    <label class="block text-sm font-medium text-slate-700">Subject</label>
+    <input type="text" name="subject" value="{{ subject }}" class="mt-1 w-full border border-slate-300 rounded px-3 py-2">
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-slate-700">HTML body</label>
+    <textarea name="html" rows="18" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 font-mono text-sm">{{ html }}</textarea>
+  </div>
+  <div>
+    <label class="block text-sm font-medium text-slate-700">Plain text body</label>
+    <textarea name="text" rows="10" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 font-mono text-sm">{{ text }}</textarea>
+  </div>
+  <div class="flex gap-2">
+    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save</button>
+    <a href="/emails/view/{{ sector }}" class="px-4 py-2 rounded border border-slate-300 hover:bg-slate-50">Preview</a>
+    <a href="/emails" class="px-4 py-2 rounded border border-slate-300 hover:bg-slate-50">Back</a>
+  </div>
+</form>
+{% endblock %}

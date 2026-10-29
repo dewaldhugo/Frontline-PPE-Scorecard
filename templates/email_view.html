@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}View Email - {{ sector }}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">View Email — {{ sector|title }}</h1>
+<div class="mb-3"><strong>Subject:</strong> {{ subject }}</div>
+<div class="bg-white p-2 rounded shadow">
+  <iframe srcdoc="{{ html|e }}" style="width:100%;height:700px;border:none;"></iframe>
+</div>
+<a href="/emails" class="mt-4 inline-block text-blue-600 hover:underline">← Back to Emails</a>
+{% endblock %}

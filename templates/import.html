@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Import Leads - Frontline Safety Fear [PPE Scorecard]{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">📥 Import Leads</h1>
+<div class="bg-white p-4 rounded shadow">
+  <form method="post" action="/import" enctype="multipart/form-data" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Target sector</label>
+      <select name="sector" class="border border-slate-300 rounded px-3 py-2">
+        {% for s in sectors %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">CSV file (email, first_name, company)</label>
+      <input type="file" name="file" accept=".csv" class="mt-1">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700">Mode</label>
+      <select name="mode" class="border border-slate-300 rounded px-3 py-2">
+        <option value="append">Append to existing</option>
+        <option value="replace">Replace existing</option>
+      </select>
+    </div>
+    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Import</button>
+  </form>
+  {% if message %}
+  <div class="mt-4 p-3 rounded bg-green-100 text-green-800">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+  <div class="mt-4 p-3 rounded bg-red-100 text-red-800">{{ error }}</div>
+  {% endif %}
+  {% if preview %}
+  <div class="mt-4">
+    <h3 class="font-semibold mb-2">Preview (first 20 rows)</h3>
+    <table class="min-w-full text-sm border">
+      <thead class="bg-slate-100"><tr>{% for c in preview_cols %}<th class="px-2 py-1 border">{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in preview %}<tr>{% for c in preview_cols %}<td class="px-2 py-1 border">{{ row[c] }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+    <p class="text-sm text-slate-500 mt-2">Total rows: {{ preview_total }}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Frontline Safety Fear [PPE Scorecard]{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">📊 Metrics</h1>
+<div class="grid grid-cols-5 gap-4 mb-6">
+  <div class="bg-white p-4 rounded shadow"><div class="text-sm text-slate-500">Total</div><div class="text-2xl font-bold">{{ total }}</div></div>
+  <div class="bg-white p-4 rounded shadow"><div class="text-sm text-slate-500">Success</div><div class="text-2xl font-bold text-green-600">{{ success }}</div></div>
+  <div class="bg-white p-4 rounded shadow"><div class="text-sm text-slate-500">Failed</div><div class="text-2xl font-bold text-red-600">{{ failed }}</div></div>
+  <div class="bg-white p-4 rounded shadow"><div class="text-sm text-slate-500">Skipped</div><div class="text-2xl font-bold text-amber-600">{{ skipped }}</div></div>
+  <div class="bg-white p-4 rounded shadow"><div class="text-sm text-slate-500">Live sends</div><div class="text-2xl font-bold text-blue-600">{{ live }}</div></div>
+</div>
+<div class="bg-white p-4 rounded shadow">
+  <div class="flex justify-between items-center mb-3">
+    <h2 class="text-lg font-semibold">Sends</h2>
+    <a href="/export/csv" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">Export CSV</a>
+  </div>
+  <table id="sendsTable" class="display w-full">
+    <thead>
+      <tr>
+        <th>Timestamp</th><th>Sector</th><th>Email</th><th>First name</th><th>Company</th>
+        <th>Status</th><th>Dry run</th><th>SMTP code</th><th>Message ID</th><th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.timestamp }}</td>
+        <td>{{ r.sector }}</td>
+        <td>{{ r.lead_email }}</td>
+        <td>{{ r.first_name }}</td>
+        <td>{{ r.company }}</td>
+        <td>{{ r.status }}</td>
+        <td>{{ r.dry_run }}</td>
+        <td>{{ r.smtp_response_code or '' }}</td>
+        <td>{{ r.message_id or '' }}</td>
+        <td>{{ r.error_message or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  $(document).ready(function() {
+    $('#sendsTable').DataTable({ pageLength: 25, order: [[0, 'desc']] });
+  });
+</script>
+{% endblock %}

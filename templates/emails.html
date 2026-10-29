@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Emails - Frontline Safety Fear [PPE Scorecard]{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">✉️ Emails</h1>
+<div class="grid gap-4">
+  {% for t in templates %}
+  <div class="bg-white p-4 rounded shadow flex items-center justify-between">
+    <div>
+      <div class="font-semibold text-lg">{{ t.sector|title }}</div>
+      <div class="text-sm text-slate-500">{{ t.subject }}</div>
+    </div>
+    <div class="flex gap-2">
+      <a href="/emails/view/{{ t.sector }}" class="bg-slate-600 text-white px-3 py-1 rounded text-sm hover:bg-slate-700">View</a>
+      <a href="/emails/edit/{{ t.sector }}" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">Edit</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
