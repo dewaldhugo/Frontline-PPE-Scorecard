@@ -7,20 +7,14 @@
     <div>
       <label class="block text-sm font-medium text-slate-700">Target sector</label>
       <select name="sector" class="border border-slate-300 rounded px-3 py-2">
-        {% for s in sectors %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        {% for s in sector_options %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
       </select>
     </div>
     <div>
       <label class="block text-sm font-medium text-slate-700">CSV file (email, first_name, company)</label>
       <input type="file" name="file" accept=".csv" class="mt-1">
     </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700">Mode</label>
-      <select name="mode" class="border border-slate-300 rounded px-3 py-2">
-        <option value="append">Append to existing</option>
-        <option value="replace">Replace existing</option>
-      </select>
-    </div>
+    <p class="text-sm text-slate-500">New email addresses are imported; existing ones are skipped automatically.</p>
     <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Import</button>
   </form>
   {% if message %}

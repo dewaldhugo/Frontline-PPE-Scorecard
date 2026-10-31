@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Leads: {{ sector_name }}</h1>
+
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-blue-50 p-4 rounded shadow border-l-4 border-blue-500">
+    <div class="text-sm text-blue-700 font-medium">Leads</div>
+    <div class="text-2xl font-bold text-blue-800 mt-1">{{ total_leads }}</div>
+  </div>
+  <div class="bg-green-50 p-4 rounded shadow border-l-4 border-green-500">
+    <div class="text-sm text-green-700 font-medium">Sent</div>
+    <div class="text-2xl font-bold text-green-800 mt-1">{{ sent }}</div>
+  </div>
+  <div class="bg-amber-50 p-4 rounded shadow border-l-4 border-amber-500">
+    <div class="text-sm text-amber-700 font-medium">Available</div>
+    <div class="text-2xl font-bold text-amber-800 mt-1">{{ available }}</div>
+  </div>
+</div>
+
+<div class="bg-white p-4 rounded shadow">
+  <table id="leadsTable" class="display w-full">
+    <thead>
+      <tr>
+        <th>Email</th><th>First name</th><th>Last name</th><th>Full name</th><th>Job title</th>
+        <th>Company</th><th>Industry</th><th>Department</th><th>Company size</th><th>Company type</th>
+        <th>LinkedIn</th><th>Phone</th><th>Sent</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in leads %}
+      <tr>
+        <td>{{ r.email }}</td>
+        <td>{{ r.first_name or '' }}</td>
+        <td>{{ r.last_name or '' }}</td>
+        <td>{{ r.full_name or '' }}</td>
+        <td>{{ r.job_title or '' }}</td>
+        <td>{{ r.company or '' }}</td>
+        <td>{{ r.industry or '' }}</td>
+        <td>{{ r.department or '' }}</td>
+        <td>{{ r.company_size or '' }}</td>
+        <td>{{ r.company_type or '' }}</td>
+        <td>{{ r.linkedin_url or '' }}</td>
+        <td>{{ r.phone_number or '' }}</td>
+        <td>{{ r.sent }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="text-sm text-slate-500 mt-2">Total: {{ leads|length }}</p>
+  <a href="/sectors" class="mt-4 inline-block text-blue-600 hover:underline">← Back to Sectors</a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  $(document).ready(function() {
+    $('#leadsTable').DataTable({ pageLength: 25 });
+  });
+</script>
+{% endblock %}

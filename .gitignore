@@ -32,3 +32,6 @@ desktop.ini
 
 # Temporary
 *.tmp
+# Backups
+*.bak
+*.bak2

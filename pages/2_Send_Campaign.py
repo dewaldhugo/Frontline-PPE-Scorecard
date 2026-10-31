@@ -12,39 +12,12 @@ import admin_common as ac
 ac.inject_css()
 st.title("🚀 Send Campaign")
 
-# ---------------- Preview section
-st.subheader("Preview rendered email")
-preview_sector = st.selectbox("Preview sector", ac.SECTORS, index=0, key="preview_sector")
-leads_path = f"leads_{preview_sector}.csv"
-if os.path.exists(leads_path):
-    pdf = pd.read_csv(leads_path)
-    if len(pdf) > 0:
-        idx = st.number_input("Lead row index", min_value=0, max_value=len(pdf) - 1, value=0, step=1)
-        row = pdf.iloc[int(idx)].to_dict()
-        cfg = None
-        # build context via send_campaign if available
-        try:
-            import send_campaign as sc
-            ctx = sc.build_context(row, survey_url=sc.sector_config(preview_sector)["survey_url"])
-            subject = sc.render_template(sc.sector_config(preview_sector)["subject"], ctx)
-            html = sc.render_template(sc.load_template(sc.sector_config(preview_sector)["html_path"]), ctx)
-            st.write(f"**Subject:** {subject}")
-            st.components.v1.html(html, height=600, scrolling=True)
-        except Exception as e:
-            st.error(f"Preview failed: {e}")
-    else:
-        st.info("No leads in this file.")
-else:
-    st.info(f"{leads_path} not found.")
-
-st.divider()
-
 # ---------------- Send section
 st.subheader("Execute a send")
 col1, col2 = st.columns(2)
 with col1:
     sector = st.selectbox("Sector", ac.SECTORS, index=0, key="send_sector")
-    volume = st.number_input("Volume (max leads to process)", min_value=1, value=10, step=1, key="volume")
+    volume = st.number_input("Volume (max leads to process)", min_value=1, max_value=250, value=10, step=1, key="volume")
 with col2:
     dry_run = st.checkbox("Dry run", value=True, key="dry_run")
     live = st.checkbox("Force live (overrides DRY_RUN)", value=False, key="live")

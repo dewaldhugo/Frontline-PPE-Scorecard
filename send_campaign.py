@@ -91,6 +91,7 @@ FIELD_FALLBACKS = {
 }
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
 
 # Test addresses that must always be included (bypass dedup / already-contacted).
 WHITELIST_EMAILS = {
@@ -102,29 +103,117 @@ WHITELIST_EMAILS = {
     if e.strip()
 }
 
-SECTORS = ("general", "agriculture", "hospitality")
+DEFAULT_SECTORS = ("General", "Agriculture", "Hospitality")
+
+
+def init_sectors_table(db_path=DB_PATH):
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sectors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )
+            """
+        )
+        cnt = conn.execute("SELECT COUNT(*) FROM sectors").fetchone()[0]
+        if cnt == 0:
+            for name in DEFAULT_SECTORS:
+                conn.execute("INSERT OR IGNORE INTO sectors (name) VALUES (?)", (name,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_sectors(db_path=DB_PATH):
+    init_sectors_table(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute("SELECT name FROM sectors ORDER BY id").fetchall()
+    finally:
+        conn.close()
+    names = [r[0] for r in rows]
+    return names if names else list(DEFAULT_SECTORS)
+
+
+def get_sector_id(name, db_path=DB_PATH):
+    init_sectors_table(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT id FROM sectors WHERE name=?", (name,)).fetchone()
+    finally:
+        conn.close()
+    if row:
+        return row[0]
+    # try case-insensitive
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT id FROM sectors WHERE lower(name)=lower(?)", (name,)).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
+
+
+def add_sector(name, db_path=DB_PATH):
+    name = name.strip()
+    init_sectors_table(db_path)
+    init_email_templates_table(db_path)
+    init_leads_table(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("INSERT INTO sectors (name) VALUES (?)", (name,))
+        sid = conn.execute("SELECT id FROM sectors WHERE name=?", (name,)).fetchone()[0]
+        conn.execute("INSERT OR IGNORE INTO email_templates (sector_id, subject, html, text) VALUES (?, ?, ?, ?)",
+                     (sid, "{{first_name}}, is PPE supply a risk on your projects?", "", ""))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_sector(name, db_path=DB_PATH):
+    init_sectors_table(db_path)
+    sid = get_sector_id(name, db_path)
+    if sid is None:
+        raise ValueError(f"Unknown sector: {name}")
+    conn = sqlite3.connect(db_path)
+    try:
+        sent = conn.execute("SELECT COUNT(*) FROM sends WHERE sector_id=? AND status='SUCCESS' AND dry_run=0", (sid,)).fetchone()[0]
+        if sent > 0:
+            raise ValueError(f"Cannot delete sector '{name}': {sent} email(s) already sent.")
+        conn.execute("DELETE FROM leads WHERE sector_id=?", (sid,))
+        conn.execute("DELETE FROM email_templates WHERE sector_id=?", (sid,))
+        conn.execute("DELETE FROM sectors WHERE id=?", (sid,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+SECTORS = tuple(get_sectors())
 
 
 def sector_config(sector):
-    """Resolve per-sector file paths and copy settings."""
-    sector = sector.lower().strip()
-    if sector not in SECTORS:
-        raise ValueError(f"Unknown sector: {sector}. Choose from {SECTORS}")
-
-    leads_path = get_env(f"LEADS_FILE_{sector.upper()}", default=f"leads_{sector}.csv")
-    html_path = get_env(f"HTML_TEMPLATE_{sector.upper()}", default=f"email_template_{sector}.html")
-    txt_path = get_env(f"TEXT_TEMPLATE_{sector.upper()}", default=f"email_template_{sector}.txt")
-    survey_url = get_env(f"SCOREAPP_SURVEY_URL_{sector.upper()}", default=get_env("SCOREAPP_SURVEY_URL", required=True))
-    subject = get_env(f"EMAIL_SUBJECT_{sector.upper()}", default=get_env("EMAIL_SUBJECT", default="{{first_name}}, is PPE supply a risk on your projects?"))
-    return {
-        "sector": sector,
-        "leads_path": leads_path,
-        "html_path": html_path,
-        "txt_path": txt_path,
-        "survey_url": survey_url,
-        "subject": subject,
+    """Resolve per-sector settings."""
+    sid = get_sector_id(sector, DB_PATH)
+    if sid is None:
+        raise ValueError(f"Unknown sector: {sector}. Available: {get_sectors()}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT name FROM sectors WHERE id=?", (sid,)).fetchone()
+    finally:
+        conn.close()
+    name = row["name"] if row else str(sector)
+    sector = name
+    env_key = "".join(c if c.isalnum() else "_" for c in name.upper())
+    cfg = {
+        "sector": name,
+        "sector_id": sid,
+        "survey_url": get_env(f"SCOREAPP_SURVEY_URL_{env_key}", default=get_env("SCOREAPP_SURVEY_URL", required=True)),
+        "subject": get_env(f"EMAIL_SUBJECT_{env_key}", default=get_env("EMAIL_SUBJECT", default="{{first_name}}, is PPE supply a risk on your projects?")),
     }
-PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+    return cfg
+
 
 
 def validate_email(email):
@@ -159,11 +248,24 @@ def build_context(row, survey_url=None):
 
     # Ensure standard fields exist.
     if "email" not in context or not context.get("email"):
-        context["email"] = ""
+        # try email_address column
+        if context.get("email_address"):
+            context["email"] = context.get("email_address")
+        else:
+            context["email"] = ""
     if "first_name" not in context or not context.get("first_name"):
-        context["first_name"] = FIELD_FALLBACKS["first_name"]
+        # try deriving from full_name
+        fn = (context.get("full_name") or "").strip()
+        if fn:
+            context["first_name"] = fn.split()[0]
+        else:
+            context["first_name"] = FIELD_FALLBACKS["first_name"]
     if "company" not in context or not context.get("company"):
         context["company"] = FIELD_FALLBACKS["company"]
+
+    # alias email_address
+    if "email_address" not in context:
+        context["email_address"] = context.get("email", "")
 
     context["survey_url"] = survey_url
     return context
@@ -286,7 +388,10 @@ def build_message(lead_email, context, html_template, text_template, html_templa
     alt = MIMEMultipart("alternative")
     text_body = render_template(text_template, context)
     html_body = render_template(html_template, context)
-    html_body, images = embed_images(html_body, html_template_path)
+    if html_template_path:
+        html_body, images = embed_images(html_body, html_template_path)
+    else:
+        images = []
 
     alt.attach(MIMEText(text_body, "plain", "utf-8"))
     alt.attach(MIMEText(html_body, "html", "utf-8"))
@@ -390,17 +495,23 @@ def init_email_templates_table(db_path=DB_PATH):
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS email_templates (
-                sector TEXT PRIMARY KEY,
+                sector_id INTEGER PRIMARY KEY,
                 subject TEXT NOT NULL,
                 html TEXT NOT NULL,
                 text TEXT NOT NULL,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(sector_id) REFERENCES sectors(id)
             )
             """
         )
         conn.commit()
     finally:
         conn.close()
+
+
+LEAD_COLUMNS = ["first_name", "last_name", "full_name", "job_title", "company",
+                 "industry", "department", "company_size", "company_type", "email",
+                 "linkedin_url", "phone_number"]
 
 
 def init_leads_table(db_path=DB_PATH):
@@ -410,15 +521,27 @@ def init_leads_table(db_path=DB_PATH):
             """
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sector_id TEXT NOT NULL,
-                email TEXT NOT NULL,
+                sector_id INTEGER NOT NULL,
                 first_name TEXT,
+                last_name TEXT,
+                full_name TEXT,
+                job_title TEXT,
                 company TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                industry TEXT,
+                department TEXT,
+                company_size TEXT,
+                company_type TEXT,
+                email TEXT NOT NULL,
+                linkedin_url TEXT,
+                phone_number TEXT,
+                sent INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(sector_id) REFERENCES sectors(id)
             )
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_sector ON leads(sector_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_email ON leads(email)")
         conn.commit()
     finally:
         conn.close()
@@ -426,14 +549,21 @@ def init_leads_table(db_path=DB_PATH):
 
 def get_leads(sector, limit=None, db_path=DB_PATH):
     init_leads_table(db_path)
+    sid = None
+    try:
+        sid = int(sector)
+    except (ValueError, TypeError):
+        sid = get_sector_id(sector, db_path)
+    if sid is None:
+        sid = get_sector_id(sector, db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        q = "SELECT email, first_name, company FROM leads WHERE sector_id=?"
-        params = (sector,)
+        q = "SELECT * FROM leads WHERE sector_id=? AND sent=0"
+        params = (sid,)
         if limit is not None:
             q += " LIMIT ?"
-            params = (sector, int(limit))
+            params = (sid, int(limit))
         rows = conn.execute(q, params).fetchall()
     finally:
         conn.close()
@@ -444,17 +574,16 @@ def seed_email_templates(db_path=DB_PATH):
     init_email_templates_table(db_path)
     conn = sqlite3.connect(db_path)
     try:
-        for sector in SECTORS:
-            cur = conn.execute("SELECT COUNT(*) FROM email_templates WHERE sector=?", (sector,))
+        for sector in get_sectors():
+            sid = get_sector_id(sector, db_path)
+            cur = conn.execute("SELECT COUNT(*) FROM email_templates WHERE sector_id=?", (sid,))
             if cur.fetchone()[0] == 0:
-                html_path = f"email_template_{sector}.html"
-                txt_path = f"email_template_{sector}.txt"
-                html = Path(html_path).read_text(encoding="utf-8") if Path(html_path).exists() else ""
-                text = Path(txt_path).read_text(encoding="utf-8") if Path(txt_path).exists() else ""
+                html = ""
+                text = ""
                 subject = get_env(f"EMAIL_SUBJECT_{sector.upper()}", default=get_env("EMAIL_SUBJECT", default="{{first_name}}, is PPE supply a risk on your projects?"))
                 conn.execute(
-                    "INSERT INTO email_templates (sector, subject, html, text) VALUES (?, ?, ?, ?)",
-                    (sector, subject, html, text),
+                    "INSERT INTO email_templates (sector_id, subject, html, text) VALUES (?, ?, ?, ?)",
+                    (sid, subject, html, text),
                 )
         conn.commit()
     finally:
@@ -463,10 +592,18 @@ def seed_email_templates(db_path=DB_PATH):
 
 def get_email_template(sector, db_path=DB_PATH):
     seed_email_templates(db_path)
+    # resolve sector to id
+    sid = None
+    try:
+        sid = int(sector)
+    except (ValueError, TypeError):
+        sid = get_sector_id(sector, db_path)
+    if sid is None:
+        sid = get_sector_id(sector, db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        row = conn.execute("SELECT subject, html, text FROM email_templates WHERE sector=?", (sector,)).fetchone()
+        row = conn.execute("SELECT subject, html, text FROM email_templates WHERE sector_id=?", (sid,)).fetchone()
     finally:
         conn.close()
     if row:
@@ -476,16 +613,23 @@ def get_email_template(sector, db_path=DB_PATH):
 
 def save_email_template(sector, subject, html, text, db_path=DB_PATH):
     init_email_templates_table(db_path)
+    sid = None
+    try:
+        sid = int(sector)
+    except (ValueError, TypeError):
+        sid = get_sector_id(sector, db_path)
+    if sid is None:
+        sid = get_sector_id(sector, db_path)
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
             """
-            INSERT INTO email_templates (sector, subject, html, text, updated_at)
+            INSERT INTO email_templates (sector_id, subject, html, text, updated_at)
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(sector) DO UPDATE SET
+            ON CONFLICT(sector_id) DO UPDATE SET
                 subject=excluded.subject, html=excluded.html, text=excluded.text, updated_at=CURRENT_TIMESTAMP
             """,
-            (sector, subject, html, text),
+            (sid, subject, html, text),
         )
         conn.commit()
     finally:
@@ -509,6 +653,23 @@ def record_result(
 ):
     """Record a send result to both the CSV log and the SQLite database."""
     timestamp = datetime.now().isoformat()
+    sid = None
+    try:
+        sid = int(sector)
+    except (ValueError, TypeError):
+        sid = get_sector_id(sector, db_path)
+    if sid is None:
+        sid = get_sector_id(sector, db_path)
+    sector_name = sector
+    try:
+        # if sector is an id, resolve name
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT name FROM sectors WHERE id=?", (sid,)).fetchone()
+        conn.close()
+        if row:
+            sector_name = row[0]
+    except Exception:
+        pass
 
     # CSV log (kept for backwards compatibility / simple viewing).
     p = Path(log_path)
@@ -527,14 +688,15 @@ def record_result(
         conn.execute(
             """
             INSERT INTO sends
-                (timestamp, sector, lead_email, first_name, company, status, error_message,
+                (timestamp, sector, sector_id, lead_email, first_name, company, status, error_message,
                  subject, dry_run, smtp_server, message_id, smtp_response_code,
                  smtp_response_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp,
-                sector,
+                sector_name,
+                sid,
                 lead_email,
                 first_name,
                 company,
@@ -564,6 +726,7 @@ def process_leads(sector=None, limit=None, dry_run_override=None):
     global DRY_RUN
     if sector is None:
         sector = os.getenv("SECTOR", "general")
+    init_sectors_table()
     cfg = sector_config(sector)
     sector = cfg["sector"]
     CURRENT_SUBJECT = cfg["subject"]
@@ -637,7 +800,7 @@ def process_leads(sector=None, limit=None, dry_run_override=None):
 
             message_id = make_msgid(domain=SENDER_EMAIL.split("@")[-1])
             msg, message_id = build_message(email, context, html_template, text_template,
-                                            cfg["html_path"], message_id=message_id)
+                                            None, message_id=message_id)
 
             if DRY_RUN:
                 print(f"[DRY RUN] Would send to {email} ({first_name})")
@@ -662,6 +825,14 @@ def process_leads(sector=None, limit=None, dry_run_override=None):
                                  subject=subject, dry_run=DRY_RUN,
                                  message_id=message_id, smtp_response_code=smtp_code,
                                  smtp_response_message=smtp_msg)
+                    # mark lead as sent
+                    try:
+                        conn2 = sqlite3.connect(DB_PATH)
+                        conn2.execute("UPDATE leads SET sent=1 WHERE sector_id=? AND email=?", (cfg["sector_id"], email))
+                        conn2.commit()
+                        conn2.close()
+                    except Exception:
+                        pass
                 except Exception as exc:
                     err = str(exc)
                     if smtp_code is None:
@@ -688,7 +859,7 @@ def process_leads(sector=None, limit=None, dry_run_override=None):
                 seen_emails.add(email_lower)
 
             if i < total - 1:
-                delay = random.uniform(2.0, 5.0)
+                delay = 1.0
                 print(f"[INFO] Waiting {delay:.2f}s before next send...")
                 time.sleep(delay)
     finally:
@@ -698,7 +869,7 @@ def process_leads(sector=None, limit=None, dry_run_override=None):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Send personalized email campaign.")
-    parser.add_argument("--sector", choices=SECTORS, default=os.getenv("SECTOR", "general"),
+    parser.add_argument("--sector", default=os.getenv("SECTOR", "General"),
                         help="Sector to send for (general/agriculture/hospitality).")
     parser.add_argument("--limit", type=int, default=None, help="Max number of leads to process.")
     group = parser.add_mutually_exclusive_group()

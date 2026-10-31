@@ -22,7 +22,16 @@ app = FastAPI(title="Frontline Safety Fear [PPE Scorecard]")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-SECTORS = ac.SECTORS
+def get_sectors():
+    return sc.get_sectors()
+
+
+def get_sector_options():
+    opts = []
+    for name in sc.get_sectors():
+        sid = sc.get_sector_id(name)
+        opts.append({"id": sid, "name": name})
+    return opts
 
 def list_remote_images():
     import paramiko
@@ -170,45 +179,13 @@ def send_get(request: Request):
     user = auth_guard(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
-    preview_sector = request.query_params.get("preview_sector", "general")
+    _opts = get_sector_options()
+    _default = str(_opts[0]["id"]) if _opts else "1"
+    preview_sector = request.query_params.get("preview_sector", _default)
     preview_idx = int(request.query_params.get("preview_idx", 0))
     preview_subject = None
     preview_html = None
-    try:
-        import send_campaign as sc
-        import base64, mimetypes, re
-        import pandas as pd
-        leads_path = f"leads_{preview_sector}.csv"
-        if os.path.exists(leads_path):
-            pdf = pd.read_csv(leads_path)
-            if len(pdf) > 0:
-                idx = min(max(preview_idx, 0), len(pdf) - 1)
-                row = pdf.iloc[idx].to_dict()
-                cfg = sc.sector_config(preview_sector)
-                ctx = sc.build_context(row, survey_url=cfg["survey_url"])
-                preview_subject = sc.render_template(cfg["subject"], ctx)
-                html = sc.render_template(sc.load_template(cfg["html_path"]), ctx)
-
-                def _inline(match):
-                    src = match.group(2)
-                    if src.startswith(("http://", "https://", "data:", "cid:")):
-                        return match.group(0)
-                    # resolve file
-                    p = None
-                    for cand in (os.path.join(os.path.dirname(cfg["html_path"]), src), src, os.path.join(os.getcwd(), src)):
-                        if os.path.isfile(cand):
-                            p = cand
-                            break
-                    if not p:
-                        return match.group(0)
-                    mime = mimetypes.guess_type(p)[0] or "application/octet-stream"
-                    data = base64.b64encode(open(p, "rb").read()).decode("ascii")
-                    return f'{match.group(1)}data:{mime};base64,{data}{match.group(3)}'
-
-                preview_html = re.sub(r'(src\s*=\s*["\'])([^"\']+)(["\'])', _inline, html, flags=re.IGNORECASE)
-    except Exception as e:
-        preview_subject = f"Error: {e}"
-    return render(request, "send.html", active="send", user=user, sectors=SECTORS,
+    return render(request, "send.html", active="send", user=user, sector_options=get_sector_options(),
                   preview_sector=preview_sector, preview_idx=preview_idx,
                   preview_subject=preview_subject, preview_html=preview_html, output=None, error=None)
 
@@ -231,7 +208,7 @@ def send_post(request: Request, sector: str = Form(...), volume: int = Form(10),
     if proc.returncode != 0 and not error:
         error = proc.stderr
     # reload preview defaults
-    return render(request, "send.html", active="send", user=user, sectors=SECTORS,
+    return render(request, "send.html", active="send", user=user, sector_options=get_sector_options(),
                   preview_sector=sector, preview_idx=0, preview_subject=None, preview_html=None,
                   output=output, error=error)
 
@@ -241,11 +218,43 @@ def import_get(request: Request):
     user = auth_guard(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
-    return render(request, "import.html", active="import", user=user, sectors=SECTORS, message=None, error=None, preview=None, preview_cols=None, preview_total=0)
+    return render(request, "import.html", active="import", user=user, sector_options=get_sector_options(), message=None, error=None, preview=None, preview_cols=None, preview_total=0)
+
+
+def _normalize_header(h):
+    return "".join(c if c.isalnum() else "_" for c in str(h).lower()).strip("_")
+
+
+COLUMN_MAP = {
+    "first_name": ["first_name", "first name", "firstname", "first"],
+    "last_name": ["last_name", "last name", "lastname", "last"],
+    "full_name": ["full_name", "full name", "fullname", "name", "full name "],
+    "job_title": ["job_title", "job title", "jobtitle", "title", "position", "role"],
+    "company": ["company", "company name", "organization", "organisation", "employer"],
+    "industry": ["industry", "sector"],
+    "department": ["department", "dept"],
+    "company_size": ["company_size", "company size", "companysize", "size", "employees"],
+    "company_type": ["company_type", "company type", "companytype", "type"],
+    "email": ["email", "email address", "e_mail", "mail", "email_address", "emailaddress"],
+    "linkedin_url": ["linkedin_url", "linkedin url", "linkedin", "linkedin profile", "linkedin_url"],
+    "phone_number": ["phone_number", "phone number", "phone", "telephone", "mobile", "phone no"],
+}
+
+
+def _map_columns(df):
+    norm = {_normalize_header(c): c for c in df.columns}
+    mapping = {}
+    for target, candidates in COLUMN_MAP.items():
+        for cand in candidates:
+            key = _normalize_header(cand)
+            if key in norm:
+                mapping[target] = norm[key]
+                break
+    return mapping
 
 
 @app.post("/import", response_class=HTMLResponse)
-def import_post(request: Request, sector: str = Form(...), mode: str = Form(...), file: UploadFile = File(...)):
+def import_post(request: Request, sector: int = Form(...), file: UploadFile = File(...)):
     user = auth_guard(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
@@ -254,40 +263,54 @@ def import_post(request: Request, sector: str = Form(...), mode: str = Form(...)
     try:
         df = pd.read_csv(io.BytesIO(content))
     except Exception as e:
-        return render(request, "import.html", active="import", user=user, sectors=SECTORS,
+        return render(request, "import.html", active="import", user=user, sector_options=get_sector_options(),
                       message=None, error=f"Failed to read CSV: {e}", preview=None, preview_cols=None, preview_total=0)
-    if "email" not in df.columns or "first_name" not in df.columns:
-        return render(request, "import.html", active="import", user=user, sectors=SECTORS,
-                      message=None, error="CSV must contain 'email' and 'first_name' columns.",
+    colmap = _map_columns(df)
+    if "email" not in colmap:
+        return render(request, "import.html", active="import", user=user, sector_options=get_sector_options(),
+                      message=None, error="CSV must contain an email column (e.g. 'Email address' or 'email').",
                       preview=df.head(20).to_dict("records"), preview_cols=list(df.columns), preview_total=len(df))
     import sqlite3
-    conn = sqlite3.connect(ac.DB_PATH if hasattr(ac,'DB_PATH') else __import__('os').getenv('DB_PATH','campaign.db'))
-    # use send_campaign DB path
     import send_campaign as sc
     conn = sqlite3.connect(sc.DB_PATH)
     try:
         sc.init_leads_table(sc.DB_PATH)
         inserted = 0
+        skipped = 0
         for _, r in df.iterrows():
-            email = str(r.get("email", "")).strip()
+            email = str(r.get(colmap["email"], "")).strip()
             if not email:
                 continue
-            if mode == "append":
-                cur = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=? AND email=?", (sector, email))
-                if cur.fetchone()[0] > 0:
-                    continue
+            cur = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=? AND email=?", (sector, email))
+            if cur.fetchone()[0] > 0:
+                skipped += 1
+                continue
+            vals = {}
+            for target in COLUMN_MAP:
+                if target in colmap:
+                    v = r.get(colmap[target])
+                    vals[target] = "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v).strip()
+                else:
+                    vals[target] = ""
+            # first_name fallback from full_name
+            if not vals.get("first_name") and vals.get("full_name"):
+                vals["first_name"] = vals["full_name"].split()[0] if vals["full_name"].split() else ""
             conn.execute(
-                "INSERT INTO leads (sector_id, email, first_name, company) VALUES (?,?,?,?)",
-                (sector, email, str(r.get("first_name", "")).strip(), str(r.get("company", "")).strip()),
+                """INSERT INTO leads (sector_id, first_name, last_name, full_name, job_title, company,
+                   industry, department, company_size, company_type, email, linkedin_url, phone_number, sent)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                (sector, vals.get("first_name", ""), vals.get("last_name", ""), vals.get("full_name", ""),
+                 vals.get("job_title", ""), vals.get("company", ""), vals.get("industry", ""),
+                 vals.get("department", ""), vals.get("company_size", ""), vals.get("company_type", ""),
+                 email, vals.get("linkedin_url", ""), vals.get("phone_number", "")),
             )
             inserted += 1
         conn.commit()
     finally:
         conn.close()
-    return render(request, "import.html", active="import", user=user, sectors=SECTORS,
-                  message=f"Imported {inserted} new leads into sector '{sector}'.", error=None,
+    return render(request, "import.html", active="import", user=user, sector_options=get_sector_options(),
+                  message=f"Imported {inserted} new leads (skipped {skipped} existing).", error=None,
                   preview=df.head(20).to_dict("records"), preview_cols=list(df.columns), preview_total=len(df))
-
 
 
 @app.get("/emails", response_class=HTMLResponse)
@@ -296,7 +319,7 @@ def emails_list(request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     templates_list = []
-    for s in SECTORS:
+    for s in get_sectors():
         t = sc.get_email_template(s)
         templates_list.append({"sector": s, "subject": t["subject"]})
     return render(request, "emails.html", active="emails", user=user, templates=templates_list)
@@ -371,19 +394,64 @@ def sectors(request: Request):
     sectors_info = []
     conn = sqlite3.connect(sc.DB_PATH)
     try:
-        for slug in SECTORS:
-            sent = conn.execute(
-                "SELECT COUNT(DISTINCT lead_email) FROM sends WHERE sector=? AND status='SUCCESS' AND dry_run=0", (slug,)
-            ).fetchone()[0]
-            total_leads = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=?", (slug,)).fetchone()[0]
-            sent_emails = {r[0] for r in conn.execute(
-                "SELECT lead_email FROM sends WHERE sector=? AND status='SUCCESS' AND dry_run=0", (slug,)).fetchall()}
-            unsent = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=? AND email NOT IN (SELECT lead_email FROM sends WHERE status='SUCCESS' AND dry_run=0)", (slug,)).fetchone()[0]
-            sectors_info.append({"slug": slug, "sent": sent, "total_leads": total_leads, "unsent": unsent})
+        for name in sc.get_sectors():
+            sid = sc.get_sector_id(name, sc.DB_PATH)
+            sent = conn.execute("SELECT COUNT(*) FROM sends WHERE sector_id=? AND status='SUCCESS' AND dry_run=0", (sid,)).fetchone()[0]
+            total_leads = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=?", (sid,)).fetchone()[0]
+            unsent = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=? AND email NOT IN (SELECT lead_email FROM sends WHERE sector_id=? AND status='SUCCESS' AND dry_run=0)", (sid, sid)).fetchone()[0]
+            sectors_info.append({"slug": name, "name": name, "sent": sent, "total_leads": total_leads, "unsent": unsent})
     finally:
         conn.close()
-    return render(request, "sectors.html", active="sectors", user=user, sectors_info=sectors_info)
+    return render(request, "sectors.html", active="sectors", user=user, sectors_info=sectors_info, message=None, error=None)
 
+
+@app.post("/sectors/add", response_class=HTMLResponse)
+def sectors_add(request: Request, name: str = Form(...)):
+    user = auth_guard(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    try:
+        sc.add_sector(name)
+        msg = f"Sector '{name}' added."
+        err = None
+    except Exception as e:
+        msg = None
+        err = str(e)
+    sectors_info = _sectors_info()
+    return render(request, "sectors.html", active="sectors", user=user, sectors_info=sectors_info, message=msg, error=err)
+
+
+@app.post("/sectors/delete/{slug}", response_class=HTMLResponse)
+def sectors_delete(request: Request, slug: str):
+    user = auth_guard(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    try:
+        sc.delete_sector(slug)
+        msg = f"Sector '{slug}' deleted."
+        err = None
+    except Exception as e:
+        msg = None
+        err = str(e)
+    sectors_info = _sectors_info()
+    return render(request, "sectors.html", active="sectors", user=user, sectors_info=sectors_info, message=msg, error=err)
+
+
+def _sectors_info():
+    import sqlite3, send_campaign as sc
+    sc.init_leads_table(sc.DB_PATH)
+    sectors_info = []
+    conn = sqlite3.connect(sc.DB_PATH)
+    try:
+        for name in sc.get_sectors():
+            sid = sc.get_sector_id(name, sc.DB_PATH)
+            sent = conn.execute("SELECT COUNT(*) FROM sends WHERE sector_id=? AND status='SUCCESS' AND dry_run=0", (sid,)).fetchone()[0]
+            total_leads = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=?", (sid,)).fetchone()[0]
+            unsent = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=? AND email NOT IN (SELECT lead_email FROM sends WHERE sector_id=? AND status='SUCCESS' AND dry_run=0)", (sid, sid)).fetchone()[0]
+            sectors_info.append({"slug": name, "name": name, "sent": sent, "total_leads": total_leads, "unsent": unsent})
+    finally:
+        conn.close()
+    return sectors_info
 
 
 @app.post("/media/upload", response_class=HTMLResponse)
@@ -395,7 +463,7 @@ def media_upload(request: Request, file: UploadFile = File(...)):
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in (".jpg", ".jpeg", ".png"):
-        templates_list = [{"sector": s, "subject": sc.get_email_template(s)["subject"]} for s in SECTORS]
+        templates_list = [{"sector": s, "subject": sc.get_email_template(s)["subject"]} for s in get_sectors()]
         return render(request, "media.html", active="media", user=user,
                       upload_error="Only .jpg and .png files are allowed.", upload_url=None,
                       images=list_remote_images())
@@ -411,16 +479,41 @@ def media_upload(request: Request, file: UploadFile = File(...)):
         sftp.close()
         transport.close()
         url = f"https://frontline-footwear.com/scoreapp/{filename}"
-        templates_list = [{"sector": s, "subject": sc.get_email_template(s)["subject"]} for s in SECTORS]
+        templates_list = [{"sector": s, "subject": sc.get_email_template(s)["subject"]} for s in get_sectors()]
         return render(request, "media.html", active="media", user=user,
                       upload_error=None, upload_url=url,
                       images=list_remote_images())
     except Exception as e:
-        templates_list = [{"sector": s, "subject": sc.get_email_template(s)["subject"]} for s in SECTORS]
+        templates_list = [{"sector": s, "subject": sc.get_email_template(s)["subject"]} for s in get_sectors()]
         return render(request, "media.html", active="media", user=user,
                       upload_error=f"Upload failed: {e}", upload_url=None,
                       images=list_remote_images())
 
+
+
+
+@app.get("/sectors/{sector}/leads", response_class=HTMLResponse)
+def sector_leads(request: Request, sector: str):
+    user = auth_guard(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    import sqlite3, send_campaign as sc
+    sid = sc.get_sector_id(sector)
+    if sid is None:
+        return RedirectResponse(url="/sectors", status_code=303)
+    conn = sqlite3.connect(sc.DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM leads WHERE sector_id=? ORDER BY id", (sid,)).fetchall()]
+        name_row = conn.execute("SELECT name FROM sectors WHERE id=?", (sid,)).fetchone()
+        total_leads = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=?", (sid,)).fetchone()[0]
+        sent = conn.execute("SELECT COUNT(*) FROM leads WHERE sector_id=? AND sent=1", (sid,)).fetchone()[0]
+    finally:
+        conn.close()
+    sector_name = name_row["name"] if name_row else sector
+    available = total_leads - sent
+    return render(request, "sector_leads.html", active="sectors", user=user, sector_name=sector_name,
+                  leads=rows, total_leads=total_leads, sent=sent, available=available)
 
 
 @app.get("/media", response_class=HTMLResponse)
@@ -441,10 +534,3 @@ def deploy(request: Request):
     return render(request, "deploy.html", active="deploy", user=user)
 
 
-@app.get("/config", response_class=HTMLResponse)
-def config(request: Request):
-    user = auth_guard(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-    env_content = open(".env").read() if os.path.exists(".env") else "No .env file found."
-    return render(request, "config.html", active="config", user=user, env_content=env_content)

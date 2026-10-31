@@ -2,14 +2,74 @@
 {% block title %}Sectors - Frontline Safety Fear [PPE Scorecard]{% endblock %}
 {% block content %}
 <h1 class="text-2xl font-bold mb-4">🗂️ Sectors</h1>
-<div class="grid gap-4">
-  {% for s in sectors_info %}
-  <div class="bg-white p-4 rounded shadow flex items-center justify-between">
+
+{% if message %}
+<div class="mb-3 p-3 rounded bg-green-100 text-green-800">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="mb-3 p-3 rounded bg-red-100 text-red-800">{{ error }}</div>
+{% endif %}
+
+{% set total_leads = sectors_info|sum(attribute='total_leads') %}
+{% set total_sent = sectors_info|sum(attribute='sent') %}
+{% set total_unsent = sectors_info|sum(attribute='unsent') %}
+
+<div class="bg-white p-4 rounded shadow overflow-x-auto">
+  <table class="min-w-full text-sm border border-slate-200">
+    <thead class="bg-slate-100">
+      <tr>
+        <th class="px-3 py-2 text-left border-b border-slate-200"></th>
+        <th class="px-3 py-2 text-center border-b border-slate-200" style="width:80px">Leads</th>
+        <th class="px-3 py-2 text-center border-b border-slate-200" style="width:80px">Sent</th>
+        <th class="px-3 py-2 text-center border-b border-slate-200" style="width:80px">Available</th>
+        <th class="px-3 py-2 text-center border-b border-slate-200" style="width:80px"></th>
+        <th class="px-3 py-2 text-center border-b border-slate-200" style="width:80px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sectors_info %}
+      <tr class="border-b border-slate-100 hover:bg-slate-50">
+        <td class="px-3 py-2 font-semibold">{{ s.name }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px">{{ s.total_leads }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px">{{ s.sent }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px">{{ s.unsent }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px">
+          <a href="/sectors/{{ s.slug }}/leads" class="bg-slate-600 text-white px-3 py-1 rounded text-sm hover:bg-slate-700">Leads</a>
+        </td>
+        <td class="px-3 py-2 text-center" style="width:80px">
+          {% if s.sent > 0 %}
+          <button disabled class="bg-slate-300 text-slate-500 px-3 py-1 rounded text-sm cursor-not-allowed">Delete</button>
+          {% else %}
+          <form method="post" action="/sectors/delete/{{ s.slug }}" style="display:inline">
+            <button type="submit" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700">Delete</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      <tr class="bg-slate-100 font-bold">
+        <td class="px-3 py-2"></td>
+        <td class="px-3 py-2 text-center" style="width:80px">{{ total_leads }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px">{{ total_sent }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px">{{ total_unsent }}</td>
+        <td class="px-3 py-2 text-center" style="width:80px"></td>
+        <td class="px-3 py-2 text-center" style="width:80px"></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<hr class="my-6 border-slate-300">
+
+<!-- Add sector -->
+<div class="bg-white p-4 rounded shadow">
+  <h2 class="text-lg font-semibold mb-3">Add sector</h2>
+  <form method="post" action="/sectors/add" class="flex gap-3 items-end">
     <div>
-      <div class="font-semibold text-lg">{{ s.slug|title }}</div>
-      <div class="text-sm text-slate-500">Leads: {{ s.total_leads }} · Sent: {{ s.sent }} · Unsent: {{ s.unsent }}</div>
+      <label class="block text-sm font-medium text-slate-700">Name</label>
+      <input type="text" name="name" required placeholder="e.g. Retail" class="mt-1 border border-slate-300 rounded px-3 py-2">
     </div>
-  </div>
-  {% endfor %}
+    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add</button>
+  </form>
 </div>
 {% endblock %}

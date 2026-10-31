@@ -99,7 +99,7 @@ python view_metrics.py --sector agriculture
 
 ## Notes
 
-- A randomized 2–5 second delay is applied between sends.
+- A 1 second delay is applied between sends.
 - Invalid email addresses are skipped with a warning and logged as FAILED.
 - The SMTP session is reused across sends and closed safely on exit.
 - Press Ctrl+C to stop; the session is closed gracefully.
